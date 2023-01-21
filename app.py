@@ -4,6 +4,7 @@ import io
 import json
 import pytz
 
+
 import dash
 from dash.dependencies import Input, Output
 import dash_bootstrap_components as dbc
@@ -241,6 +242,13 @@ def parse_new(new_in):
             x=new_rm.index,
             y=new_rm["Count"]
         ))
+    new_month = new.rolling(28).mean()
+    f_nd.add_trace(
+        go.Scatter(
+            name="Rolling Average (Month)",
+            x=new_month.index,
+            y=new_month["Count"]
+        ))
     f_nd.update_layout(
         title="New Cards (Daily)",
         yaxis_title="New Cards",
@@ -342,6 +350,8 @@ def parse_struggles(entry):
             if not everKnown:
                 time_to_learn += 1
     return [[entry.get('spelling') or ('Kanji: ' + entry['character']), len(entry['reviews']), time_to_learn, relapses]]    
+
+
 
 if __name__ == "__main__":
     app.run_server(debug=True)
