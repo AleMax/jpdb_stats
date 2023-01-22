@@ -38,7 +38,7 @@ app.layout = html.Div(
         dcc.Dropdown(
             id='timezone-dropdown',
             options=timezone_list,
-            value='America/New_York',
+            value='Europe/Berlin',
             style={'color': 'black'}
         ),
         dcc.Store(id='timezone'),
