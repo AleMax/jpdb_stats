@@ -249,6 +249,13 @@ def parse_new(new_in):
             x=new_month.index,
             y=new_month["Count"]
         ))
+    new_hy = new.rolling(182).mean()
+    f_nd.add_trace(
+        go.Scatter(
+            name="Rolling Average (6 Months)",
+            x=new_hy.index,
+            y=new_hy["Count"]
+        ))
     f_nd.update_layout(
         title="New Cards (Daily)",
         yaxis_title="New Cards",
