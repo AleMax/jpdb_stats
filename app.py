@@ -69,6 +69,7 @@ app.layout = html.Div(
         html.H3("Time Spent"),
         dcc.Graph(id="time_cum", figure=default_fig),
         dcc.Graph(id="time_daily", figure=default_fig),
+        dcc.Graph(id="time_card", figure=default_fig),
         html.H3("Retention"),
         dcc.Graph(id="ret_avg", figure=default_fig),
         html.H3("Problem words"),
@@ -99,33 +100,33 @@ app.layout = html.Div(
 
 @app.callback(
     [Output("new_cum", "figure"),Output("new_daily", "figure"),Output("rev_cum", "figure"),Output("rev_daily", "figure"),Output("time_cum", "figure"),\
-        Output("time_daily", "figure"),Output("overall", "figure"),Output("datatable-struggles","data"),Output("ret_avg","figure")],
+        Output("time_daily", "figure"),Output("time_card", "figure"),Output("overall", "figure"),Output("datatable-struggles","data"),Output("ret_avg","figure")],
     [Input("upload-data", "contents"), Input("upload-data", "filename"), Input("timezone", "data")],
 )
 def update_graph(contents, filename, timezone):
-    f_nc = default_fig; f_nd = default_fig; f_rc = default_fig; f_rd = default_fig; fm_rc = default_fig; fm_rd = default_fig;f_overall = default_fig; datatable = default_table; f_retention = default_fig
+    f_nc = default_fig; f_nd = default_fig; f_rc = default_fig; f_rd = default_fig; fm_rc = default_fig; fm_rd = default_fig;fm_tc = default_fig; f_overall = default_fig; datatable = default_table; f_retention = default_fig
     if (filename is not None):
         contents = contents.split(',')
         contents = contents[1]
         new, rev, history, struggles = parse_data(contents, filename, timezone)
-        f_rc, f_rd, fm_rc, fm_rd = parse_reviews(rev)
+        f_rc, f_rd, fm_rc, fm_rd, fm_tc = parse_reviews(rev, new)
         f_nc, f_nd = parse_new(new)
         f_overall = parse_history(history)
         f_retention = parse_retention(history)
         datatable = pd.DataFrame(struggles, columns=["Word", "Total Reviews", "Time to Learn", "No. Relapses"]).to_dict('records')
 
-    return [f_nc, f_nd, f_rc, f_rd, fm_rc, fm_rd, f_overall, datatable, f_retention]
+    return [f_nc, f_nd, f_rc, f_rd, fm_rc, fm_rd, fm_tc, f_overall, datatable, f_retention]
 
 @app.callback(
     [Output("new_cum", "style"),Output("new_daily", "style"),Output("rev_cum", "style"),Output("rev_daily", "style"),Output("time_cum", "style"),\
-        Output("time_daily", "style"),Output("overall", "style"), Output("ret_avg", "style")],
+        Output("time_daily", "style"),Output("time_card", "style"),Output("overall", "style"), Output("ret_avg", "style")],
     [Input("upload-data", "filename")],
 )
 def update_display(filename):
     if (filename is not None):
-        return [{"display":"block"},{"display":"block"},{"display":"block"},{"display":"block"},{"display":"block"},{"display":"block"},{"display":"block"},{"display":"block"}]
+        return [{"display":"block"},{"display":"block"},{"display":"block"},{"display":"block"},{"display":"block"},{"display":"block"},{"display":"block"},{"display":"block"},{"display":"block"}]
     else:
-        return [{"display":"none"},{"display":"none"},{"display":"none"},{"display":"none"},{"display":"none"},{"display":"none"},{"display":"none"},{"display":"none"}]
+        return [{"display":"none"},{"display":"none"},{"display":"none"},{"display":"none"},{"display":"none"},{"display":"none"},{"display":"none"},{"display":"none"},{"display":"none"}]
 
 @app.callback(Output("timezone","data"), [Input("timezone-dropdown","value")])
 def update_timezone(value):
@@ -134,12 +135,14 @@ def update_timezone(value):
 def parse_data(contents, filename, timezone):
     decoded = base64.b64decode(contents)
     new = []
+    new_date = []
     rev = []
     history = []
     struggles = []
     try:
         reviews_json = json.load(io.StringIO(decoded.decode("utf-8")))
-        for entry in (reviews_json["cards_vocabulary_jp_en"] + reviews_json["cards_kanji_char_keyword"] + reviews_json["cards_kanji_keyword_char"]):
+        #for entry in (reviews_json["cards_vocabulary_jp_en"] + reviews_json["cards_kanji_char_keyword"] + reviews_json["cards_kanji_keyword_char"]):
+        for entry in (reviews_json["cards_vocabulary_jp_en"]):
             if (len(entry['reviews']) == 0):
                 continue
             new.append(datetime.utcfromtimestamp(entry['reviews'][0]['timestamp']).astimezone(pytz.timezone(timezone)).date())
@@ -153,7 +156,9 @@ def parse_data(contents, filename, timezone):
 
     return new, rev, history, struggles
 
-def parse_reviews(rev):
+global_new = None
+
+def parse_reviews(rev, new_in):
     reviews = pd.DataFrame(rev, columns=['Date'])
     reviews['Count'] = 1
     reviews_minute = pd.DataFrame(rev, columns=['Date'])
@@ -188,15 +193,52 @@ def parse_reviews(rev):
     idx = pd.date_range(reviews_minute.index.min(), reviews_minute.index.max())
     reviews_minute = reviews_minute.reindex(idx, fill_value=0)
     rolling_rm = reviews_minute.rolling(7).mean()
-    reviews_cum = reviews_minute.cumsum()
+    reviews_time_cum = reviews_minute.cumsum()
     # Cum. Plot
-    fm_rc = reviews_cum.plot()
+    fm_rc = reviews_time_cum.plot()
     fm_rc.update_layout(
         title="Time (Cum.)",
         yaxis_title="Total time (minutes)",
         xaxis_title="Date",
         template=template
     )
+
+    # Time spent per known
+    #new_in['date'] = pd.to_datetime(new_in['date'])
+    new = pd.DataFrame(new_in, columns=['Date'])
+
+    new['Count'] = 1
+    new['Date'] = pd.to_datetime(new['Date'])
+    new = new.groupby('Date').sum()
+
+    idx = pd.date_range(new.index.min(), new.index.max())
+    new.index = pd.DatetimeIndex(new.index)
+    new = new.reindex(idx, fill_value=0)
+    new_cum = new.cumsum()
+    
+    values_time_known = []
+
+    i = 0
+    for new_point in new_cum["Count"]:
+        #print(reviews_time_cum["Count"][i])
+        values_time_known.append(reviews_time_cum["Count"][i] * 1.0 / new_point)
+        i += 1
+
+
+    new['Count'] = values_time_known
+    fm_tc = new.plot()
+    fm_tc.update_layout(
+        title="Time per card",
+        yaxis_title="Minutes per Card",
+        xaxis_title="Date",
+        template=template
+    )
+
+
+    #minutes_per_word = reviews_time_cum.divide(new_cum)
+    print(new)
+
+
     # Daily Plot
     fm_rd = reviews_minute.plot(kind="bar")
     fm_rd.add_trace(
@@ -213,7 +255,7 @@ def parse_reviews(rev):
     )
     
 
-    return f_rc, f_rd, fm_rc, fm_rd
+    return f_rc, f_rd, fm_rc, fm_rd, fm_tc
 
 def parse_new(new_in):
     new = pd.DataFrame(new_in, columns=['Date'])
